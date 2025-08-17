@@ -1,0 +1,33 @@
+name: Bug report
+description: Report a problem
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Steps to reproduce and what you expected
+      placeholder: Open world, click…, expected…, got…
+    validations:
+      required: true
+  - type: input
+    id: foundry
+    attributes:
+      label: Foundry version
+      placeholder: 13.x
+  - type: input
+    id: system
+    attributes:
+      label: Game system and version
+      placeholder: dnd5e 3.x or system name
+  - type: textarea
+    id: settings
+    attributes:
+      label: Relevant module settings
+      placeholder: List any settings that matter
+  - type: textarea
+    id: console
+    attributes:
+      label: Console errors
+      description: Open browser dev tools and copy anything in the console
+      render: shell
