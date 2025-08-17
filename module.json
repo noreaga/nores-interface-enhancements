@@ -3,7 +3,7 @@
   "title": "Nore's Interface Enhancements",
   "description": "UI tweaks for Foundry VTT v13: sidebar auto expand with selectable default tab or last tab, pause banner position, collapsible hotbars, and a Module Management toolbar.",
   "type": "module",
-  "version": "2.9.7",
+  "version": "2.9.8",
   "compatibility": {
     "minimum": "13",
     "verified": "13"
@@ -19,7 +19,7 @@
   ],
   "url": "https://github.com/noreaga/nores-interface-enhancements",
   "manifest": "https://raw.githubusercontent.com/noreaga/nores-interface-enhancements/main/module.json",
-  "download": "https://github.com/noreaga/nores-interface-enhancements/releases/download/v2.9.7/nores-interface-enhancements-v2.9.7.zip",
+  "download": "https://github.com/noreaga/nores-interface-enhancements/releases/download/v2.9.8/nores-interface-enhancements-v2.9.8.zip",
   "readme": "https://raw.githubusercontent.com/noreaga/nores-interface-enhancements/main/README.md",
   "license": "https://raw.githubusercontent.com/noreaga/nores-interface-enhancements/main/LICENSE.md",
   "changelog": "https://raw.githubusercontent.com/noreaga/nores-interface-enhancements/main/CHANGELOG.md",
