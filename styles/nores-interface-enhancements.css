@@ -1,0 +1,63 @@
+/* Nore's Interface Enhancements v2.9.3 */
+/* Lower the Game Paused overlay */
+body.nie-lower-pause #pause {
+  top: 20% !important;
+  left: 50% !important;
+  transform: translate(-50%, 0) !important;
+}
+
+
+/* Collapse rules for v2.8.1 toggle: show only our toggle when collapsed */
+#hotbar.nie-hb-collapsed #action-bar,
+#hotbar.nie-hb-collapsed #macro-list,
+#hotbar.nie-hb-collapsed .macro-list,
+#hotbar.nie-hb-collapsed ol.macro-list,
+#hotbar.nie-hb-collapsed #hotbar-controls-right { display: none !important; }
+#hotbar.nie-hb-collapsed #hotbar-controls-left > *:not(.nie-bottom-row2) { display: none !important; }
+#hotbar.nie-hb-collapsed #hotbar-controls-left .nie-bottom-row2 { display: flex !important; }
+#hotbar.nie-hb-collapsed #hotbar-controls-left .nie-bottom-row2 > :not(.nie-hb-toggle2) { display: none !important; }
+#hotbar.nie-hb-collapsed #hotbar-controls-left .nie-hb-toggle2 { display: inline-flex !important; }
+#hotbar.nie-hb-collapsed { min-height: 32px; }
+
+/* Module Management toolbar layout: single row, title left, buttons right */
+.nie-modbar-row { width: 100%; }
+.nie-modbar.nie-native {
+  width: 100%;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.nie-modbar .nie-left { text-align: left; margin-right: auto; }
+.nie-modbar .nie-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+.nie-modbar .nie-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-light-2, rgba(0,0,0,.14));
+  background: var(--color-bg-option, rgba(127,127,127,0.06));
+  cursor: pointer;
+  font-size: 14px;
+}
+
+/* Pause banner positions */
+body.nie-pause-top #pause {
+  top: 15% !important;
+  left: 50% !important;
+  transform: translate(-50%, 0) !important;
+}
+body.nie-pause-bottom #pause {
+  top: 70% !important;
+  left: 50% !important;
+  transform: translate(-50%, 0) !important;
+}
