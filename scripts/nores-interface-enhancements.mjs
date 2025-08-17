@@ -1,5 +1,5 @@
 // Nore's Interface Enhancements v2.9.3
-const MOD_ID = "nore-interface-enhancements";
+const MOD_ID = "nores-interface-enhancements";
 const MOD_TITLE = "Nore's Interface Enhancements";
 
 /** Setting keys */
@@ -75,7 +75,7 @@ game.settings.register(MOD_ID, S.lastTab, { scope: "world", config: false, type:
 
 function applyPausePosition(){
   try {
-    const pos = game.settings.get("nore-interface-enhancements", "pausePosition");
+    const pos = game.settings.get(MOD_ID, "pausePosition");
     document.body.classList.toggle("nie-pause-top", pos === "top");
     document.body.classList.toggle("nie-pause-bottom", pos === "bottom");
   } catch(e) {}
@@ -288,7 +288,7 @@ function activeModuleJson() {
 
 /* ===== NIE Hotbar Reflow v2.8.1 (isolation layer) ===== */
 (() => {
-  const MODID = "nore-interface-enhancements";
+  const MODID = MOD_ID;
   const BOTTOM_CLASS = "nie-bottom-row2";
   const TOGGLE_CLASS = "nie-hb-toggle2";
   const BOUND = "nieBound_v280";
