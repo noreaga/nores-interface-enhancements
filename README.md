@@ -6,7 +6,7 @@ A lightweight set of quality of life tweaks for Foundry VTT v13. It adds a compa
 Sidebar behavior changed in v13. The sidebar now always starts collapsed and Foundry does not provide a built in option to change that. This setting opens the sidebar automatically when the world loads, and lets you choose which tab is active or you can use the last open tab you had open.
 
 ## Module Management toolbar
-A compact toolbar appears above the modules list. It lets you check or uncheck boxes in bulk and export or import your active modult lists.
+A compact toolbar appears above the modules list. It lets you check or uncheck boxes in bulk and export or import your active module lists.
 
 ![Module Management toolbar](docs/images/module_toolbar.png)
 
