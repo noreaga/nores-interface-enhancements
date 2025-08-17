@@ -1,0 +1,25 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-zip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build zip
+        run: |
+          ZIP="nores-interface-enhancements-${GITHUB_REF_NAME}.zip"
+          zip -r "$ZIP" module.json README.md CHANGELOG.md LICENSE.md scripts styles docs || \
+          zip -r "$ZIP" module.json README.md CHANGELOG.md LICENSE.md scripts styles
+          echo "ZIP_NAME=$ZIP" >> $GITHUB_ENV
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ZIP_NAME }}
