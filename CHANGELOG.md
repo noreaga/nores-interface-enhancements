@@ -1,5 +1,9 @@
 # Changelog
 
+
+## 2.9.8
+* Fixed some issues and typos
+  
 ## 2.9.7
 * Finalize release
 * Remove duplicate Compendium packs choice
