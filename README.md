@@ -35,6 +35,7 @@ All options live in Game Settings under the module name.
 
 * Auto expand the sidebar on world load
 * Choose a default sidebar tab or use last open tab
+* Hide the small chat window when not on the Chat Messages tab
 * Pause banner position: Default (Center), Top, Bottom
 * Enable the collapsible hotbar and choose to start collapsed
 
