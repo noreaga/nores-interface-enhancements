@@ -1,5 +1,7 @@
 # Changelog
 
+## 3.0.0
+* Add setting to hide the small chat window when not on the Chat tab
 
 ## 2.9.8
 * Fixed some issues and typos

@@ -1,4 +1,4 @@
-/* Nore's Interface Enhancements v2.9.3 */
+/* Nore's Interface Enhancements v3.0.0 */
 /* Lower the Game Paused overlay */
 body.nie-lower-pause #pause {
   top: 20% !important;
@@ -7,7 +7,7 @@ body.nie-lower-pause #pause {
 }
 
 
-/* Collapse rules for v2.8.1 toggle: show only our toggle when collapsed */
+/* Collapse rules for v3.0.0 toggle: show only our toggle when collapsed */
 #hotbar.nie-hb-collapsed #action-bar,
 #hotbar.nie-hb-collapsed #macro-list,
 #hotbar.nie-hb-collapsed .macro-list,

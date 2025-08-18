@@ -1,16 +1,17 @@
-// Nore's Interface Enhancements v2.9.3
+// Nore's Interface Enhancements v3.0.0
 const MOD_ID = "nores-interface-enhancements";
 const MOD_TITLE = "Nore's Interface Enhancements";
 
 /** Setting keys */
 const S = {
-defaultTab: "defaultTab",
+  defaultTab: "defaultTab",
   expandOnStart: "expandOnStart",
   lowerPause: "lowerPause",
   hotbarToggle: "hotbarToggle",
   hotbarStartCollapsed: "hotbarStartCollapsed",
   lastTab: "lastTab",
-  pausePosition: "pausePosition"
+  pausePosition: "pausePosition",
+  hideChatPeek: "hideChatPeek"
 };
 
 function getS(key){ return game.settings.get(MOD_ID, key); }
@@ -18,7 +19,7 @@ function setS(key,v){ return game.settings.set(MOD_ID, key, v); }
 
 Hooks.once("init", () => {
   applyPausePosition();
-  // Settings from v2.1.1
+
   game.settings.register(MOD_ID, S.defaultTab, {
     name: "Default sidebar tab",
     hint: "Choose a tab for startup or use Last open tab.",
@@ -70,7 +71,16 @@ Hooks.once("init", () => {
     choices: { "default": "Default", "top": "Top", "bottom": "Bottom" },
     requiresReload: true
   });
-game.settings.register(MOD_ID, S.lastTab, { scope: "world", config: false, type: String, default: "" });
+
+  // v3.0.x: Hide the small chat peek
+  game.settings.register(MOD_ID, S.hideChatPeek, {
+    name: "Hide small chat window",
+    hint: "Hide the small chat window that shows when not on the Chat Messages tab.",
+    scope: "world", config: true, type: Boolean, default: false,
+    onChange: v => applyChatPeek(v)
+  });
+
+  game.settings.register(MOD_ID, S.lastTab, { scope: "world", config: false, type: String, default: "" });
 });
 
 function applyPausePosition(){
@@ -81,23 +91,37 @@ function applyPausePosition(){
   } catch(e) {}
 }
 
-
+// Track whether the Chat tab is active so we only hide the mini chat when away from Chat
+function isChatActive(){
+  try { return ui?.sidebar?.activeTab === "chat"; } catch { return false; }
+}
+function updateChatActiveFlag(){
+  document.body.classList.toggle("nie-not-in-chat", !isChatActive());
+}
 
 Hooks.once("setup", () => { applyPausePosition(); });
+
 Hooks.once("ready", () => {
   try { if (getS(S.defaultTab) === "default") setS(S.defaultTab, "last"); } catch(e){}
-  Hooks.on("changeSidebarTab", tab => setS(S.lastTab, tab.id));
-  // Migrate legacy boolean to new dropdown once (no await here)
+  Hooks.on("changeSidebarTab", tab => {
+    setS(S.lastTab, tab.id);
+    updateChatActiveFlag();
+    // Re-apply chat peek rule whenever tabs change
+    applyChatPeek(getS(S.hideChatPeek));
+  });
+
   try {
     const legacy = (typeof S !== "undefined" && S.lowerPause) ? getS(S.lowerPause) : false;
-    if (getS(S.pausePosition) === "default" && legacy) {
-      setS(S.pausePosition, "bottom");
-    }
+    if (getS(S.pausePosition) === "default" && legacy) setS(S.pausePosition, "bottom");
   } catch(e) {}
+
   const pos = getS(S.pausePosition);
   document.body.classList.toggle("nie-pause-top", pos === "top");
   document.body.classList.toggle("nie-pause-bottom", pos === "bottom");
 
+  updateChatActiveFlag();
+  applyChatPeek(getS(S.hideChatPeek));
+  mountChatPeekObserver();
 });
 
 // Sidebar behavior
@@ -113,7 +137,7 @@ Hooks.on("renderSidebar", () => {
   }
 });
 
-/* ---------------- Module Management toolbar from v1.4.6 ---------------- */
+/* ---------------- Module Management toolbar ---------------- */
 Hooks.on("renderModuleManagement", (app, htmlEl) => {
   try {
     const html = htmlEl instanceof HTMLElement ? htmlEl : htmlEl[0];
@@ -138,7 +162,7 @@ Hooks.on("renderModuleManagement", (app, htmlEl) => {
         <button type="button" class="nie-btn nie-uncheck-all" title="Uncheck all except this module" aria-label="Uncheck all">${iconUncheckAll(20)}</button>
         <button type="button" class="nie-btn nie-copy" title="Copy active modules to clipboard" aria-label="Copy active">${iconCopy(20)}</button>
         <button type="button" class="nie-btn nie-export" title="Export active modules as JSON" aria-label="Export JSON">${iconDownload(20)}</button>
-        <button type="button" class="nie-btn nie-import" title="Import JSON and check matching ids" aria-label="Import JSON">${iconUpload(20)}</button>
+        <button type="button" class="nie-btn nie-import" title="Import JSON" aria-label="Import JSON">${iconUpload(20)}</button>
         <input type="file" accept="application/json" class="nie-import-input" style="display:none" />
       </div>
     `;
@@ -183,7 +207,6 @@ Hooks.on("renderModuleManagement", (app, htmlEl) => {
         if (cb.checked !== desired) {
           cb.checked = desired;
           touched++;
-          // No change event here. User will press Save.
         }
       }
       ui.notifications.info(`Checked state updated for ${touched} modules. Click Save Modules to apply.`);
@@ -284,7 +307,6 @@ function activeModuleJson() {
   const ids = Array.from(game.modules).filter(m => m.active).map(m => m.id);
   return { ids };
 }
-
 
 /* ===== NIE Hotbar Reflow v2.8.1 (isolation layer) ===== */
 (() => {
@@ -396,3 +418,64 @@ function activeModuleJson() {
   Hooks.on("renderHotbar", attach);
 })();
 /* ===== End NIE Hotbar Reflow v2.8.1 ===== */
+
+/* ===== Hide Chat Peek v3.0.0 ===== */
+let _nieChatPeekObserver = null;
+
+function hidePeekNodesIfNeeded(){
+  if (!getS(S.hideChatPeek)) return;
+  if (isChatActive()) return;
+
+  // Only hide nodes that are not inside the sidebar
+  const nodes = [
+    document.getElementById("chat-notifications"),
+    document.getElementById("chat-controls")
+  ].filter(Boolean).filter(el => !el.closest("#sidebar"));
+
+  for (const el of nodes) {
+    el.style.display = "none";
+    el.setAttribute("aria-hidden", "true");
+  }
+
+  // Best effort close, if API exists
+  try { ui.chat?.closePeek?.(); } catch(e){}
+}
+
+function unhidePeekNodes(){
+  // Remove inline hiding we may have added
+  const nodes = [
+    document.getElementById("chat-notifications"),
+    document.getElementById("chat-controls")
+  ].filter(Boolean);
+  for (const el of nodes) {
+    if (el.getAttribute("aria-hidden") === "true") el.removeAttribute("aria-hidden");
+    if (el.style?.display === "none") el.style.removeProperty("display");
+  }
+}
+
+function applyChatPeek(enabled){
+  document.body.classList.toggle("nie-hide-peek-chat", !!enabled);
+  if (enabled) hidePeekNodesIfNeeded(); else unhidePeekNodes();
+}
+
+function mountChatPeekObserver(){
+  if (_nieChatPeekObserver) return;
+  _nieChatPeekObserver = new MutationObserver(() => {
+    hidePeekNodesIfNeeded();
+  });
+  _nieChatPeekObserver.observe(document.body, { childList: true, subtree: true });
+
+  // debug
+  window.NIE_dumpChatPeek = () => {
+    const nodes = Array.from(document.querySelectorAll('aside, section, div'))
+      .filter(n => /chat/i.test(n.id || "") || /\bpeek\b/i.test(n.className || ""))
+      .slice(0, 10)
+      .map(n => ({
+        tag: n.tagName, id: n.id, cls: n.className, appid: n.getAttribute("data-application-id") || n.getAttribute("data-application") || null,
+        html: n.outerHTML.slice(0, 300) + "..."
+      }));
+    console.log({ nodes });
+    return nodes;
+  };
+}
+/* ===== End Hide Chat Peek v3.0.0 ===== */

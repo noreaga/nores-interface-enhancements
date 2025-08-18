@@ -25,6 +25,9 @@ Adds a small button next to the hotbar controls that hides or shows the hotbar. 
 * The button sits next to the audio and menu controls
 * The button stays visible when collapsed so you can reopen the hotbar
 
+## Hide small chat window
+Adds a setting to hide the small chat window that appears when you are not on the Chat Messages tab. When enabled, the small chat stays hidden unless you switch to the Chat tab.
+
 ## Module settings
 All options live in Game Settings under the module name.
 
