@@ -52,7 +52,7 @@ https://raw.githubusercontent.com/noreaga/nores-interface-enhancements/main/modu
 Download the release zip and install from file.
 
 ```
-https://github.com/noreaga/nores-interface-enhancements/releases/download/v2.9.8/nores-interface-enhancements-v3.0.0.zip
+https://github.com/noreaga/nores-interface-enhancements/releases/download/v3.0.0/nores-interface-enhancements-v3.0.0.zip
 ```
 
 ## License
