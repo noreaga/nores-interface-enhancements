@@ -1,4 +1,4 @@
-// Nore's Interface Enhancements v3.0.0
+// Nore's Interface Enhancements v3.1.1
 const MOD_ID = "nores-interface-enhancements";
 const MOD_TITLE = "Nore's Interface Enhancements";
 
@@ -6,20 +6,272 @@ const MOD_TITLE = "Nore's Interface Enhancements";
 const S = {
   defaultTab: "defaultTab",
   expandOnStart: "expandOnStart",
-  lowerPause: "lowerPause",
+  lowerPause: "lowerPause",        // legacy key kept for one-time migration
   hotbarToggle: "hotbarToggle",
   hotbarStartCollapsed: "hotbarStartCollapsed",
   lastTab: "lastTab",
   pausePosition: "pausePosition",
-  hideChatPeek: "hideChatPeek"
+  preventActiveTabClose: "preventActiveTabClose",
+  hideChatPeek: "hideChatPeek",
+  autoUnpauseOnGM: "autoUnpauseOnGM"
 };
 
 function getS(key){ return game.settings.get(MOD_ID, key); }
 function setS(key,v){ return game.settings.set(MOD_ID, key, v); }
 
+/* ---------------- Pause banner helpers ---------------- */
+function applyPausePosition(){
+  try {
+    const pos = game.settings.get(MOD_ID, S.pausePosition);
+    document.body.classList.toggle("nie-pause-top", pos === "top");
+    document.body.classList.toggle("nie-pause-bottom", pos === "bottom");
+  } catch(e) {}
+}
+
+/* ---------------- Hotbar alignment helpers ---------------- */
+let NIE_hotbarBaseCenter = null;
+
+function NIE_realignHotbar() {
+  try {
+    // Only do anything if "hide mini chat" is on
+    if (!getS(S.hideChatPeek)) {
+      NIE_hotbarBaseCenter = null;
+      const hbClear = document.getElementById("hotbar");
+      if (hbClear) {
+        hbClear.style.position = "";
+        hbClear.style.left = "";
+        hbClear.style.transform = "";
+      }
+      return;
+    }
+
+    const hb = document.getElementById("hotbar");
+    if (!hb) return;
+
+    const rect = hb.getBoundingClientRect();
+    if (!rect || !rect.width) return;
+
+    const center = rect.left + rect.width / 2;
+
+    // First measurement becomes our baseline
+    if (NIE_hotbarBaseCenter === null) {
+      NIE_hotbarBaseCenter = center;
+      hb.style.position = "";
+      hb.style.left = "";
+      hb.style.transform = "";
+      return;
+    }
+
+    const delta = NIE_hotbarBaseCenter - center;
+
+    hb.style.position = "relative";
+    hb.style.transform = `translateX(${delta}px)`;
+  } catch (e) {
+    console.error(MOD_ID, "NIE_realignHotbar error", e);
+  }
+}
+
+/* ---------------- Chat peek helpers ---------------- */
+function ensureChatPeekStyle(){
+  // Inject a small stylesheet once; relies on a body class toggle
+  if (document.getElementById("nie-chatpeek-style")) return;
+  const css = `
+    /* Completely hide mini chat and kill its layout footprint */
+    body.nie-hide-chatpeek #chat-notifications {
+      display: none !important;
+      width: 0 !important;
+      max-width: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      border: 0 !important;
+      opacity: 0 !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
+    }
+  `.trim();
+  const style = document.createElement("style");
+  style.id = "nie-chatpeek-style";
+  style.textContent = css;
+  document.head.appendChild(style);
+}
+function applyHideChatPeek(){
+  try {
+    ensureChatPeekStyle();
+    const enabled = !!getS(S.hideChatPeek);
+    document.body.classList.toggle("nie-hide-chatpeek", enabled);
+    // After toggling this, fix the hotbar alignment
+    setTimeout(NIE_realignHotbar, 25);
+  } catch(e) {}
+}
+function watchChatPeekMount(){
+  // Ensure the rule applies even if the node mounts later
+  if (document.body.dataset.nieChatPeekObs) return;
+  const obs = new MutationObserver(() => {
+    applyHideChatPeek();
+    setTimeout(NIE_realignHotbar, 25);
+  });
+  obs.observe(document.body, { childList: true, subtree: true });
+  document.body.dataset.nieChatPeekObs = "1";
+}
+
+/* ---------------- Sidebar collapse gating ---------------- */
+function NIE_patchCollapseGate() {
+  try {
+    const enabled = getS(S.preventActiveTabClose);
+    const sb = ui?.sidebar;
+    if (!sb) return;
+
+    const proto = Object.getPrototypeOf(sb);
+    if (!proto) return;
+
+    // unwrap on disable
+    if (!enabled) {
+      if (proto.collapse && proto.collapse.__nieWrapped && proto.collapse.__nieOriginal) proto.collapse = proto.collapse.__nieOriginal;
+      if (proto.expand && proto.expand.__nieWrapped && proto.expand.__nieOriginal) proto.expand = proto.expand.__nieOriginal;
+      if (proto._onClickTab && proto._onClickTab.__nieWrapped && proto._onClickTab.__nieOriginal) proto._onClickTab = proto._onClickTab.__nieOriginal;
+      return;
+    }
+
+    // wrap expand to record a short cooldown
+    if (!(proto.expand && proto.expand.__nieWrapped)) {
+      const originalExpand = proto.expand;
+      if (typeof originalExpand === "function") {
+        const wrappedExpand = function(...args) {
+          const out = originalExpand.apply(this, args);
+          try { window.NIE_recentExpand = Date.now(); } catch(e) {}
+          return out;
+        };
+        wrappedExpand.__nieWrapped = true;
+        wrappedExpand.__nieOriginal = originalExpand;
+        proto.expand = wrappedExpand;
+      }
+    }
+
+    // wrap collapse to block unless allowed and not within cooldown
+    if (!(proto.collapse && proto.collapse.__nieWrapped)) {
+      const originalCollapse = proto.collapse;
+      if (typeof originalCollapse === "function") {
+        const wrappedCollapse = function(...args) {
+          try {
+            const allow = !!window.NIE_allowSidebarCollapse;
+            const recent = typeof window.NIE_recentExpand === "number" && (Date.now() - window.NIE_recentExpand) < 400;
+            if (getS(S.preventActiveTabClose) && (!allow || recent)) {
+              try { this.expand(); } catch(e) {}
+              return;
+            }
+          } catch (e) {
+            console.error(MOD_ID, "collapse gate error", e);
+          } finally {
+            window.NIE_allowSidebarCollapse = false;
+          }
+          return originalCollapse.apply(this, args);
+        };
+        wrappedCollapse.__nieWrapped = true;
+        wrappedCollapse.__nieOriginal = originalCollapse;
+        proto.collapse = wrappedCollapse;
+      }
+    }
+
+    // wrap _onClickTab to swallow clicks on current tab
+    if (!(proto._onClickTab && proto._onClickTab.__nieWrapped)) {
+      const originalOnClick = proto._onClickTab;
+      if (typeof originalOnClick === "function") {
+        const wrappedClick = function(ev) {
+          try {
+            if (!getS(S.preventActiveTabClose)) return originalOnClick.call(this, ev);
+            const el = ev?.currentTarget?.dataset?.tab ? ev.currentTarget : (ev?.target?.closest ? ev.target.closest("a.item") : null);
+            const tab = el?.dataset?.tab;
+            if (!tab) return originalOnClick.call(this, ev);
+            const isActive = tab === this.activeTab;
+            const collapsed = this.element?.[0]?.classList?.contains("collapsed") || this._collapsed || false;
+            if (isActive) {
+              ev?.preventDefault?.(); ev?.stopImmediatePropagation?.(); ev?.stopPropagation?.();
+              if (!collapsed) {
+                // Already open on that tab; keep it open
+                this.activateTab(tab);
+                return;
+              } else {
+                // If collapsed, expand and start cooldown to avoid bounce
+                try { this.expand(); } catch(e) {}
+                window.NIE_recentExpand = Date.now();
+                return;
+              }
+            }
+          } catch (e) {
+            console.error(MOD_ID, "_onClickTab guard error", e);
+          }
+          return originalOnClick.call(this, ev);
+        };
+        wrappedClick.__nieWrapped = true;
+        wrappedClick.__nieOriginal = originalOnClick;
+        proto._onClickTab = wrappedClick;
+      }
+    }
+
+    // mark clicks on collapse control as allowed
+    const root = document.getElementById("sidebar");
+    if (root && !root.dataset.nieCollapseGate) {
+      const mark = (ev) => {
+        const btn = ev.target?.closest?.('[data-action="collapse"], .collapse, button[aria-label="Collapse Sidebar"]');
+        if (btn) {
+          window.NIE_allowSidebarCollapse = true;
+          setTimeout(() => { window.NIE_allowSidebarCollapse = false; }, 250);
+        }
+      };
+      root.addEventListener("pointerdown", mark, true);
+      root.addEventListener("click", mark, true);
+      root.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") mark(ev);
+      }, true);
+      root.dataset.nieCollapseGate = "1";
+    }
+  } catch (e) {
+    console.error(MOD_ID, "NIE_patchCollapseGate failed", e);
+  }
+}
+
+/* ---- Auto-unpause on GM login ---- */
+function NIE_tryAutoUnpause() {
+  try {
+    if (!getS(S.autoUnpauseOnGM)) return;
+    if (!game.user?.isGM) return;
+
+    const doUnpause = () => {
+      try {
+        const isPaused = !!game.paused || !!game.isPaused;
+        if (!isPaused) return true;
+        if (typeof game.togglePause === "function") {
+          try { game.togglePause(false); } catch (e) { game.togglePause(); }
+        } else {
+          const btn = document.querySelector('[data-action="pause"], #pause, .control-tool.toggle[data-action="pause"]');
+          if (btn) btn.click();
+        }
+        return !(!!game.paused || !!game.isPaused);
+      } catch (e) {
+        console.error(MOD_ID, "auto-unpause error", e);
+        return false;
+      }
+    };
+
+    let tries = 0;
+    const tick = () => {
+      tries++;
+      const ok = doUnpause();
+      if (ok || tries >= 6) return;
+      setTimeout(tick, tries < 3 ? 150 : 300);
+    };
+    tick();
+  } catch (e) {
+    console.error(MOD_ID, "NIE_tryAutoUnpause failed", e);
+  }
+}
+
+/* ---------------- Init ---------------- */
 Hooks.once("init", () => {
   applyPausePosition();
+  ensureChatPeekStyle();
 
+  // Default tab
   game.settings.register(MOD_ID, S.defaultTab, {
     name: "Default sidebar tab",
     hint: "Choose a tab for startup or use Last open tab.",
@@ -46,12 +298,21 @@ Hooks.once("init", () => {
     requiresReload: true
   });
 
+  // Expand sidebar on load
   game.settings.register(MOD_ID, S.expandOnStart, {
     name: "Expand sidebar on load",
     hint: "Open the sidebar when the world finishes loading.",
     scope: "world", config: true, type: Boolean, default: false, requiresReload: true
   });
 
+  // Do not close active tab on re click
+  game.settings.register(MOD_ID, S.preventActiveTabClose, {
+    name: "Do not close active tab on re click",
+    hint: "Only the Collapse control may close the sidebar; re clicking the active tab keeps it open.",
+    scope: "world", config: true, type: Boolean, default: false, requiresReload: true
+  });
+
+  // Collapsible hotbars
   game.settings.register(MOD_ID, S.hotbarToggle, {
     name: "Enable collapsible hotbars",
     hint: "Adds a button to collapse or expand the hotbar.",
@@ -64,64 +325,74 @@ Hooks.once("init", () => {
     scope: "world", config: true, type: Boolean, default: false, requiresReload: true
   });
 
+  // Pause position
   game.settings.register(MOD_ID, S.pausePosition, {
     name: "Pause banner position",
-    hint: "Choose Default, Top, or Bottom for the 'Game Paused' overlay.",
+    hint: "Choose Default, Top, or Bottom for the Game Paused overlay.",
     scope: "world", config: true, type: String, default: "default",
     choices: { "default": "Default", "top": "Top", "bottom": "Bottom" },
-    requiresReload: true
+    requiresReload: true,
+    onChange: () => applyPausePosition()
   });
 
-  // v3.0.x: Hide the small chat peek
+  // Hide small chat window (chat peek)
   game.settings.register(MOD_ID, S.hideChatPeek, {
     name: "Hide small chat window",
-    hint: "Hide the small chat window that shows when not on the Chat Messages tab.",
-    scope: "world", config: true, type: Boolean, default: false,
-    onChange: v => applyChatPeek(v)
+    hint: "Hide the mini chat overlay that appears when you are not on the Chat tab.",
+    scope: "world", config: true, type: Boolean, default: false, requiresReload: false,
+    onChange: () => applyHideChatPeek()
   });
 
-  game.settings.register(MOD_ID, S.lastTab, { scope: "world", config: false, type: String, default: "" });
+  // Auto unpause for GMs
+  game.settings.register(MOD_ID, S.autoUnpauseOnGM, {
+    name: "Start unpaused for GMs",
+    hint: "When a GM loads in, automatically clear pause so the world starts unpaused.",
+    scope: "world", config: true, type: Boolean, default: false, requiresReload: false,
+    onChange: () => NIE_tryAutoUnpause()
+  });
+
+  // internal
+  game.settings.register(MOD_ID, S.lastTab, {
+    scope: "client",   // important: client, so no player perms issues
+    config: false,
+    type: String,
+    default: ""
+  });
 });
 
-function applyPausePosition(){
-  try {
-    const pos = game.settings.get(MOD_ID, "pausePosition");
-    document.body.classList.toggle("nie-pause-top", pos === "top");
-    document.body.classList.toggle("nie-pause-bottom", pos === "bottom");
-  } catch(e) {}
-}
-
-// Track whether the Chat tab is active so we only hide the mini chat when away from Chat
-function isChatActive(){
-  try { return ui?.sidebar?.activeTab === "chat"; } catch { return false; }
-}
-function updateChatActiveFlag(){
-  document.body.classList.toggle("nie-not-in-chat", !isChatActive());
-}
-
-Hooks.once("setup", () => { applyPausePosition(); });
+Hooks.once("setup", () => {
+  applyPausePosition();
+  applyHideChatPeek();
+  watchChatPeekMount();
+  NIE_tryAutoUnpause();
+});
 
 Hooks.once("ready", () => {
   try { if (getS(S.defaultTab) === "default") setS(S.defaultTab, "last"); } catch(e){}
+
   Hooks.on("changeSidebarTab", tab => {
-    setS(S.lastTab, tab.id);
-    updateChatActiveFlag();
-    // Re-apply chat peek rule whenever tabs change
-    applyChatPeek(getS(S.hideChatPeek));
+    try { setS(S.lastTab, tab.id); } catch(e){}
+    // Every time they change tab, fix hotbar alignment if needed
+    setTimeout(NIE_realignHotbar, 25);
   });
 
+  // Migrate legacy boolean lowerPause => pausePosition
   try {
     const legacy = (typeof S !== "undefined" && S.lowerPause) ? getS(S.lowerPause) : false;
-    if (getS(S.pausePosition) === "default" && legacy) setS(S.pausePosition, "bottom");
+    if (getS(S.pausePosition) === "default" && legacy) {
+      setS(S.pausePosition, "bottom");
+    }
   } catch(e) {}
 
   const pos = getS(S.pausePosition);
   document.body.classList.toggle("nie-pause-top", pos === "top");
   document.body.classList.toggle("nie-pause-bottom", pos === "bottom");
 
-  updateChatActiveFlag();
-  applyChatPeek(getS(S.hideChatPeek));
-  mountChatPeekObserver();
+  applyHideChatPeek();
+  watchChatPeekMount();
+  NIE_patchCollapseGate();
+  NIE_tryAutoUnpause();
+  setTimeout(NIE_realignHotbar, 50);
 });
 
 // Sidebar behavior
@@ -135,9 +406,13 @@ Hooks.on("renderSidebar", () => {
     try { ui.sidebar.activateTab(target); }
     catch(e){ console.warn(MOD_ID, "activateTab failed", target, e); }
   }
+  // Re apply guards if sidebar is re rendered by other code
+  NIE_patchCollapseGate();
+  applyHideChatPeek();
+  setTimeout(NIE_realignHotbar, 25);
 });
 
-/* ---------------- Module Management toolbar ---------------- */
+/* ---------------- Module Management toolbar (from v1.4.6) ---------------- */
 Hooks.on("renderModuleManagement", (app, htmlEl) => {
   try {
     const html = htmlEl instanceof HTMLElement ? htmlEl : htmlEl[0];
@@ -162,7 +437,7 @@ Hooks.on("renderModuleManagement", (app, htmlEl) => {
         <button type="button" class="nie-btn nie-uncheck-all" title="Uncheck all except this module" aria-label="Uncheck all">${iconUncheckAll(20)}</button>
         <button type="button" class="nie-btn nie-copy" title="Copy active modules to clipboard" aria-label="Copy active">${iconCopy(20)}</button>
         <button type="button" class="nie-btn nie-export" title="Export active modules as JSON" aria-label="Export JSON">${iconDownload(20)}</button>
-        <button type="button" class="nie-btn nie-import" title="Import JSON" aria-label="Import JSON">${iconUpload(20)}</button>
+        <button type="button" class="nie-btn nie-import" title="Import JSON and check matching ids" aria-label="Import JSON">${iconUpload(20)}</button>
         <input type="file" accept="application/json" class="nie-import-input" style="display:none" />
       </div>
     `;
@@ -207,6 +482,7 @@ Hooks.on("renderModuleManagement", (app, htmlEl) => {
         if (cb.checked !== desired) {
           cb.checked = desired;
           touched++;
+          // User will press Save to apply changes; no change events here.
         }
       }
       ui.notifications.info(`Checked state updated for ${touched} modules. Click Save Modules to apply.`);
@@ -295,7 +571,7 @@ function iconUpload(size=20){
   </svg>`;
 }
 
-// Helpers for Module Management toolbar
+// Helpers for the Module Management toolbar
 function activeModuleListText() {
   const list = Array.from(game.modules)
     .filter(m => m.active)
@@ -307,6 +583,7 @@ function activeModuleJson() {
   const ids = Array.from(game.modules).filter(m => m.active).map(m => m.id);
   return { ids };
 }
+
 
 /* ===== NIE Hotbar Reflow v2.8.1 (isolation layer) ===== */
 (() => {
@@ -419,63 +696,308 @@ function activeModuleJson() {
 })();
 /* ===== End NIE Hotbar Reflow v2.8.1 ===== */
 
-/* ===== Hide Chat Peek v3.0.0 ===== */
-let _nieChatPeekObserver = null;
+/* ===================== NIE: Hover Lite (fixes) — whole pane hover, no sticky focus, arrow left only visible when idle ===================== */
+/* Settings are preserved; if missing, register with native reloads. */
+Hooks.once("init", () => {
+  try {
+    if (!game.settings.settings.get(`${MOD_ID}.playerListVisibility`)) {
+      game.settings.register(MOD_ID, "playerListVisibility", {
+        name: "Show player list",
+        hint: "Enabled shows it normally. Disable hides it completely. Hover Only hides it until you hover the player panel.",
+        scope: "world",
+        config: true,
+        type: String,
+        default: "enabled",
+        choices: { enabled: "Enabled", disabled: "Disable", hover: "Hover Only" },
+        requiresReload: true
+      });
+    }
+    if (!game.settings.settings.get(`${MOD_ID}.hidePerformanceStats`)) {
+      game.settings.register(MOD_ID, "hidePerformanceStats", {
+        name: "Hide performance readouts",
+        hint: "Hide Latency and FPS counters in the player list.",
+        scope: "world",
+        config: true,
+        type: Boolean,
+        default: true,
+        requiresReload: true
+      });
+    }
+  } catch (e) { console.error(MOD_ID, "settings register failed", e); }
+});
 
-function hidePeekNodesIfNeeded(){
-  if (!getS(S.hideChatPeek)) return;
-  if (isChatActive()) return;
-
-  // Only hide nodes that are not inside the sidebar
-  const nodes = [
-    document.getElementById("chat-notifications"),
-    document.getElementById("chat-controls")
-  ].filter(Boolean).filter(el => !el.closest("#sidebar"));
-
-  for (const el of nodes) {
-    el.style.display = "none";
-    el.setAttribute("aria-hidden", "true");
+(function(){
+  function removeOldHoverArtifacts(){
+    const ids = [
+      "nie-playerlist-visibility-style","nie-players-hover-v4-style","nie-playerlist-hover-v3-style",
+      "nie-playerlist-hover-css-style","nie-players-hover-css-fixes","nie-consolidated-style",
+      "nie-consolidated-refined-style","nie-hover-precision-refined-style","nie-settings-hover-perf-style",
+      "nie-hover-area-polish-style","nie-hover-lite-style"
+    ];
+    ids.forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+    });
+    document.body.classList.remove("nie-hide-players","nie-show-players","nie-players-off","nie-players-hover","nie-perf-hide","nie-hover-lite","nie-perf-hide-lite");
   }
 
-  // Best effort close, if API exists
-  try { ui.chat?.closePeek?.(); } catch(e){}
-}
+  const CSS = `
+    /* Disabled: hide whole aside safely */
+    body.nie-hover-lite-disabled #players,
+    body.nie-hover-lite-disabled section#players { display: none !important; }
 
-function unhidePeekNodes(){
-  // Remove inline hiding we may have added
-  const nodes = [
-    document.getElementById("chat-notifications"),
-    document.getElementById("chat-controls")
-  ].filter(Boolean);
-  for (const el of nodes) {
-    if (el.getAttribute("aria-hidden") === "true") el.removeAttribute("aria-hidden");
-    if (el.style?.display === "none") el.style.removeProperty("display");
+    /* Hover Lite: keep container in layout with a reliable hover area */
+    body.nie-hover-lite #players,
+    body.nie-hover-lite section#players {
+      position: relative !important;
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      outline: none !important;
+      overflow: visible !important;
+      min-width: var(--nie-hover-width, 220px) !important;
+      min-height: var(--nie-hover-height, 110px) !important;
+      pointer-events: auto !important;
+    }
+
+    /* Only the expand arrow remains visible when idle */
+    body.nie-hover-lite #players #players-inactive,
+    body.nie-hover-lite #players #players-active,
+    body.nie-hover-lite #players #performance-stats > :not(#players-expand) {
+      opacity: 0 !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
+    }
+    body.nie-hover-lite #players #players-expand {
+      opacity: 1 !important;
+      visibility: visible !important;
+      pointer-events: auto !important;
+    }
+
+    /* Move the arrow to the left in the footer */
+    body.nie-hover-lite #players #performance-stats {
+      display: flex !important;
+      align-items: center !important;
+      gap: 6px !important;
+      min-height: 18px !important;
+    }
+    body.nie-hover-lite #players #players-expand {
+      order: -1 !important;
+      margin-right: auto !important;
+    }
+
+    /* Reveal the entire pane when hovering anywhere over the players panel */
+    body.nie-hover-lite #players:hover #players-inactive,
+    body.nie-hover-lite #players:hover #players-active,
+    body.nie-hover-lite #players:hover #performance-stats > :not(#players-expand) {
+      opacity: 1 !important;
+      visibility: visible !important;
+      pointer-events: auto !important;
+    }
+
+    /* IMPORTANT: do not suppress hover when focused — no focus-based rules here */
+
+    /* Performance readouts toggle (lite) */
+    body.nie-perf-hide-lite #players #performance-stats #latency,
+    body.nie-perf-hide-lite #players #performance-stats #fps {
+      display: none !important;
+    }
+    body.nie-perf-hide-lite #players #performance-stats { min-height: 18px !important; }
+
+    /* Prevent clipping */
+    #players, section#players { overflow: visible !important; }
+    #players-inactive { margin-bottom: 4px !important; }
+  `;
+
+  function ensureStyle(){
+    let el = document.getElementById("nie-hover-lite-fix2-style");
+    if (!el){
+      el = document.createElement("style");
+      el.id = "nie-hover-lite-fix2-style";
+      document.head.appendChild(el);
+    }
+    el.textContent = CSS;
   }
-}
 
-function applyChatPeek(enabled){
-  document.body.classList.toggle("nie-hide-peek-chat", !!enabled);
-  if (enabled) hidePeekNodesIfNeeded(); else unhidePeekNodes();
-}
+  function applyFromSettings(){
+    try {
+      removeOldHoverArtifacts();
+      ensureStyle();
+      const vis = (game.settings.get(MOD_ID, "playerListVisibility") || "enabled").toString();
+      const perf = !!game.settings.get(MOD_ID, "hidePerformanceStats");
 
-function mountChatPeekObserver(){
-  if (_nieChatPeekObserver) return;
-  _nieChatPeekObserver = new MutationObserver(() => {
-    hidePeekNodesIfNeeded();
+      document.body.classList.remove("nie-hover-lite-disabled","nie-hover-lite","nie-perf-hide-lite");
+      if (vis === "disabled") document.body.classList.add("nie-hover-lite-disabled");
+      else if (vis === "hover") document.body.classList.add("nie-hover-lite");
+      if (perf) document.body.classList.add("nie-perf-hide-lite");
+    } catch (e) { console.error(MOD_ID, e); }
+  }
+
+  Hooks.on("ready", applyFromSettings);
+  Hooks.on("renderPlayers", applyFromSettings);
+})();
+
+/* ===================== NIE: Hover Lite UPWARDS — persistent arrow, normal backgrounds, inactive expands UP above active ===================== */
+(() => {
+  const STYLE_ID = "nie-hover-lite-upwards-style";
+
+  function installStyles(){
+    const CSS = `
+      /* Keep pane in normal flow and preserve theme visuals */
+      body.nie-hover-lite #players,
+      body.nie-hover-lite section#players {
+        position: relative !important;
+        overflow: visible !important;
+        margin-top: var(--nie-players-offset, 12px) !important; /* baked-in offset tweak */
+      }
+
+      /* Footer steady; arrow persistent and left aligned */
+      body.nie-hover-lite #players #performance-stats {
+        display: flex !important; align-items: center !important; gap: 6px !important; min-height: 22px !important;
+      }
+      body.nie-hover-lite #players #players-expand {
+        order: -1 !important; margin-right: auto !important;
+        opacity: 1 !important; visibility: visible !important; pointer-events: auto !important;
+        position: relative !important; z-index: 5 !important;
+      }
+      body.nie-hover-lite #players:hover #players-expand { opacity: 1 !important; visibility: visible !important; }
+
+      /* Idle: hide active list and perf children but keep their space */
+      body.nie-hover-lite #players:not(:hover) #players-active { visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
+      body.nie-hover-lite #players:not(:hover) #performance-stats > :not(#players-expand) { visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
+
+      /* Inactive list is positioned ABSOLUTELY to expand UP above the active list */
+      body.nie-hover-lite #players #players-inactive {
+        position: absolute !important;
+        left: 0 !important; right: 0 !important;
+        bottom: var(--nie-inactive-bottom, 22px) !important;
+        z-index: 6 !important;
+        display: none !important;
+        overflow: visible !important;
+      }
+      body.nie-hover-lite #players.expanded:hover #players-inactive {
+        display: block !important;
+      }
+
+      /* Hover: reveal active list and perf items with normal visuals */
+      body.nie-hover-lite #players:hover #players-active { visibility: visible !important; opacity: 1 !important; pointer-events: auto !important; }
+      body.nie-hover-lite #players:hover #performance-stats > :not(#players-expand) { visibility: visible !important; opacity: 1 !important; pointer-events: auto !important; }
+
+      /* Performance hide but keep footer height */
+      body.nie-perf-hide-lite #players #performance-stats #latency,
+      body.nie-perf-hide-lite #players #performance-stats #fps { display: none !important; }
+      body.nie-perf-hide-lite #players #performance-stats { min-height: 22px !important; }
+
+      /* Never clip */
+      #players, section#players, #players-active, #players-inactive { overflow: visible !important; }
+    `;
+    let el = document.getElementById(STYLE_ID);
+    if (!el){
+      el = document.createElement("style");
+      el.id = STYLE_ID;
+      document.head.appendChild(el);
+    }
+    el.textContent = CSS;
+  }
+
+  function computeInactiveBottom(){
+    try {
+      const players = document.getElementById("players");
+      if (!players) return;
+      const active = players.querySelector("#players-active");
+      if (!active) return;
+      const bottomOffset = players.clientHeight - active.offsetTop;
+      players.style.setProperty("--nie-inactive-bottom", `${bottomOffset}px`);
+    } catch(e){ console.error("NIE Hover Lite Upwards compute error", e); }
+  }
+
+  Hooks.on("ready", () => {
+    try {
+      const vis = (game.settings.get(MOD_ID, "playerListVisibility") || "enabled").toString();
+      const perf = !!game.settings.get(MOD_ID, "hidePerformanceStats");
+      document.body.classList.toggle("nie-hover-lite", vis === "hover");
+      document.body.classList.toggle("nie-perf-hide-lite", perf);
+      const aside = document.getElementById("players") || document.querySelector("section#players");
+      if (aside) aside.style.display = (vis === "disabled") ? "none" : "";
+    } catch {}
+    installStyles();
+    computeInactiveBottom();
+    window.addEventListener("resize", computeInactiveBottom);
   });
-  _nieChatPeekObserver.observe(document.body, { childList: true, subtree: true });
 
-  // debug
-  window.NIE_dumpChatPeek = () => {
-    const nodes = Array.from(document.querySelectorAll('aside, section, div'))
-      .filter(n => /chat/i.test(n.id || "") || /\bpeek\b/i.test(n.className || ""))
-      .slice(0, 10)
-      .map(n => ({
-        tag: n.tagName, id: n.id, cls: n.className, appid: n.getAttribute("data-application-id") || n.getAttribute("data-application") || null,
-        html: n.outerHTML.slice(0, 300) + "..."
-      }));
-    console.log({ nodes });
-    return nodes;
-  };
-}
-/* ===== End Hide Chat Peek v3.0.0 ===== */
+  Hooks.on("renderPlayers", () => {
+    installStyles();
+    setTimeout(computeInactiveBottom, 0);
+  });
+})();
+
+/* ===================== NIE: Hover Lite — Force Lower Position (append only) =====================
+   Uses `top` with relative positioning to move the entire player pane lower,
+   in case theme/flex rules ignore margin. Keeps everything else intact.
+*/
+(() => {
+  const STYLE_ID = "nie-hover-lite-force-lower-style";
+  function installLoweringStyles(){
+    const CSS = `
+      /* Ensure relative positioning and apply a downward shift.
+         Also neutralize any previous margin top so we do not double apply. */
+      body.nie-hover-lite section#players,
+      body.nie-hover-lite #players {
+        position: relative !important;
+        margin-top: 0 !important;
+        top: var(--nie-players-shift, 54px) !important; /* tweak via console if desired */
+      }
+    `;
+    let el = document.getElementById(STYLE_ID);
+    if (!el){
+      el = document.createElement("style");
+      el.id = STYLE_ID;
+      document.head.appendChild(el);
+    }
+    el.textContent = CSS;
+  }
+  Hooks.on("ready", installLoweringStyles);
+  Hooks.on("renderPlayers", installLoweringStyles);
+})();
+
+/* NIE append: Arrow to the right in Hover Only, leave Enabled untouched */
+(() => {
+  const STYLE_ID = "nie-arrow-right-hoveronly-strict-style";
+  function inject(){
+    const CSS = `
+      /* Ensure footer is a flex row when Hover Only is active */
+      body.nie-hover-lite #players #performance-stats {
+        display: flex !important;
+        align-items: center !important;
+        min-height: 18px !important;
+      }
+      /* Put the expand arrow at the right edge in Hover Only */
+      body.nie-hover-lite #players #performance-stats #players-expand {
+        order: 9999 !important;
+        margin-left: auto !important;
+        margin-right: 0 !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
+        position: relative !important;
+        z-index: 5 !important;
+        display: inline-flex !important;
+      }
+      /* Keep the arrow right aligned even when performance is hidden */
+      body.nie-hover-lite.nie-perf-hide-lite #players #performance-stats #players-expand {
+        margin-left: auto !important;
+        margin-right: 0 !important;
+        order: 9999 !important;
+      }
+    `;
+    let el = document.getElementById(STYLE_ID);
+    if (!el){
+      el = document.createElement("style");
+      el.id = STYLE_ID;
+      document.head.appendChild(el);
+    }
+    el.textContent = CSS;
+  }
+  Hooks.on("ready", inject);
+  Hooks.on("renderPlayers", inject);
+})();
